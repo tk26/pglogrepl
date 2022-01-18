@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"os"
@@ -9,9 +10,13 @@ import (
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgproto3/v2"
+
+	"github.com/trycourier/courier-go/v2"
 )
 
 func main() {
+	client := courier.CreateClient("AUTH_TOKEN", nil)
+
 	//	const outputPlugin = "test_decoding"
 	const outputPlugin = "pgoutput"
 	conn, err := pgconn.Connect(context.Background(), os.Getenv("PGLOGREPL_DEMO_CONN_STRING"))
@@ -19,7 +24,7 @@ func main() {
 		log.Fatalln("failed to connect to PostgreSQL server:", err)
 	}
 	defer conn.Close(context.Background())
-	
+
 	result := conn.Exec(context.Background(), "DROP PUBLICATION IF EXISTS pglogrepl_demo;")
 	_, err = result.ReadAll()
 	if err != nil {
@@ -31,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("create publication error", err)
 	}
-	log.Println("create publication pglogrepl_demo")
+	// log.Println("create publication pglogrepl_demo")
 
 	var pluginArguments []string
 	if outputPlugin == "pgoutput" {
@@ -69,7 +74,7 @@ func main() {
 			if err != nil {
 				log.Fatalln("SendStandbyStatusUpdate failed:", err)
 			}
-			log.Println("Sent Standby status message")
+			// log.Println("Sent Standby status message")
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
 
@@ -91,7 +96,7 @@ func main() {
 				if err != nil {
 					log.Fatalln("ParsePrimaryKeepaliveMessage failed:", err)
 				}
-				log.Println("Primary Keepalive Message =>", "ServerWALEnd:", pkm.ServerWALEnd, "ServerTime:", pkm.ServerTime, "ReplyRequested:", pkm.ReplyRequested)
+				// log.Println("Primary Keepalive Message =>", "ServerWALEnd:", pkm.ServerWALEnd, "ServerTime:", pkm.ServerTime, "ReplyRequested:", pkm.ReplyRequested)
 
 				if pkm.ReplyRequested {
 					nextStandbyMessageDeadline = time.Time{}
@@ -102,17 +107,53 @@ func main() {
 				if err != nil {
 					log.Fatalln("ParseXLogData failed:", err)
 				}
-				log.Println("XLogData =>", "WALStart", xld.WALStart, "ServerWALEnd", xld.ServerWALEnd, "ServerTime:", xld.ServerTime, "WALData", string(xld.WALData))
+				// log.Println("XLogData =>", "WALStart", xld.WALStart, "ServerWALEnd", xld.ServerWALEnd, "ServerTime:", xld.ServerTime, "WALData", string(xld.WALData))
 				logicalMsg, err := pglogrepl.Parse(xld.WALData)
 				if err != nil {
 					log.Fatalf("Parse logical replication message: %s", err)
 				}
 				log.Printf("Receive a logical replication message: %s", logicalMsg.Type())
 
+				// Integrate w Courier
+				if logicalMsg.Type() == 'I' {
+					// find the second column
+					walData := xld.WALData[5:]
+					pos := bytes.Index(walData, []byte("t"))
+
+					email := walData[pos+1:]
+					pos = bytes.Index(email, []byte("t"))
+
+					email = email[pos+1:]
+					emailStr := string(email)
+
+					log.Println("New user found. Gonna send a welcome message via Courier to", emailStr)
+
+					type profile struct {
+						Email string `json:"email"`
+					}
+					type data struct {
+						Foo string `json:"foo"`
+					}
+
+					messageID, err := client.Send(context.Background(), "VDPE8SWN1K4BWMP8RJ101YRZTF3J", "user-id", courier.SendBody{
+						Profile: profile{
+							Email: emailStr,
+						},
+						Data: data{
+							Foo: "bar",
+						},
+					})
+
+					if err != nil {
+						log.Fatalln(err)
+					}
+					log.Println(messageID)
+				}
+
 				clientXLogPos = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
 			}
 		default:
-			log.Printf("Received unexpected message: %#v\n", msg)
+			// log.Printf("Received unexpected message: %#v\n", msg)
 		}
 
 	}

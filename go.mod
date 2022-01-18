@@ -7,5 +7,7 @@ require (
 	github.com/jackc/pgio v1.0.0
 	github.com/jackc/pgproto3/v2 v2.0.4
 	github.com/stretchr/testify v1.5.1
+	github.com/trycourier/courier-go/v2 v2.2.1
+	golang.org/x/text v0.3.6 // indirect
 	golang.org/x/xerrors v0.0.0-20191011141410-1b5146add898
 )
